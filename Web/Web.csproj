@@ -11,6 +11,7 @@
         <PackageReference Include="File.TypeChecker" Version="4.0.0" />
         <PackageReference Include="Overby.Extensions.AsyncBinaryReaderWriter" Version="1.0.39" />
         <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0"/>
+        <PackageReference Include="UploadStream" Version="3.1.1" />
     </ItemGroup>
 
 </Project>

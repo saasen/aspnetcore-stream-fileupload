@@ -9,6 +9,12 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
+// app.Use(async (context, next) =>
+// {
+//     context.Request.EnableBuffering();
+//     await next(context);
+// });
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using Azure.Storage;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Microsoft.AspNetCore.Mvc;
@@ -84,10 +85,12 @@ public class MultiPartController : ControllerBase
         {
             return new UnsupportedMediaTypeResult();
         }
+
+        // TODO: Do we need to reset the stream position here since other middleware could've read parts already?
+        // request.Body.Seek(0, SeekOrigin.Begin);
         
         var boundary = HeaderUtilities.RemoveQuotes(mediaTypeHeader.Boundary.Value).Value;
         var reader = new MultipartReader(boundary, request.Body);
-        reader.HeadersLengthLimit = 1024;
         var section = await reader.ReadNextSectionAsync(ct);
 
         while (section != null)
@@ -98,7 +101,7 @@ public class MultiPartController : ControllerBase
             if (!hasContentDispositionHeader)
             {
                 section = await reader.ReadNextSectionAsync(ct);
-            } 
+            }
 
             if (contentDisposition.HasFileContentDisposition())
             {
@@ -107,34 +110,34 @@ public class MultiPartController : ControllerBase
                 // We can only read the HTTP request stream once, so we need to copy it to a memory stream
                 // We are reading at least twice, once because we check the file extension, and secondly when uploading the file to Azure
                 // Ref. https://devblogs.microsoft.com/dotnet/re-reading-asp-net-core-request-bodies-with-enablebuffering/
-                using var ms = new MemoryStream();
-                await section.Body.CopyToAsync(ms, ct);
-                ms.Seek(0, SeekOrigin.Begin);
 
-                using var binaryReader = new AsyncBinaryReader(ms);
-                var ext = Path.GetExtension(trustedFileName).ToLowerInvariant();
-                var signatures = _fileSignature[ext];
-                var headerBytes = await binaryReader.ReadBytesAsync(signatures.Max(m => m.Length));
-                    
-                var matchesFile = signatures.Any(signature => 
-                    headerBytes.Take(signature.Length).SequenceEqual(signature));
-                    
-                if (!matchesFile)
+                using (var binaryReader = new AsyncBinaryReader(section.Body))
                 {
-                    throw new Exception("We dont support this file");
+                    var ext = Path.GetExtension(trustedFileName).ToLowerInvariant();
+                    var signatures = _fileSignature[ext];
+                    var headerBytes = await binaryReader.ReadBytesAsync(signatures.Max(m => m.Length));
+                    
+                    var matchesFile = signatures.Any(signature => 
+                        headerBytes.Take(signature.Length).SequenceEqual(signature));
+                
+                    if (!matchesFile)
+                    {
+                        throw new Exception("We dont support this file");
+                    }
                 }
 
-                ms.Seek(0, SeekOrigin.Begin);
-
-                // var blobContainerClient = new BlobContainerClient("<redacted>", "<redacted>");
-                // var blobClient = blobContainerClient.GetBlobClient($"{customerId}/{documentId}/{trustedFileName}");
-                // var stuff = await blobClient.UploadAsync(ms, new BlobUploadOptions
-                // {
-                //     HttpHeaders = new BlobHttpHeaders
-                //     {
-                //         ContentType = section.ContentType
-                //     }
-                // }, ct);
+                // TODO: Reset, if EnableBuffering is enabled since we read the magic bytes
+                // section.Body.Seek(0, SeekOrigin.Begin);
+                
+                var blobContainerClient = new BlobContainerClient("<redacted>", "<redacted>");
+                var blobClient = blobContainerClient.GetBlobClient($"{customerId}/{documentId}/{trustedFileName}");
+                await blobClient.UploadAsync(section.Body, new BlobUploadOptions
+                {
+                    HttpHeaders = new BlobHttpHeaders
+                    {
+                        ContentType = section.ContentType
+                    }
+                }, ct);
             }
             else if (contentDisposition.HasFormDataContentDisposition())
             {
